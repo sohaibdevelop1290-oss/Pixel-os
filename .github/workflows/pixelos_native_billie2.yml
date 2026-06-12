@@ -1,29 +1,32 @@
 name: Native PixelOS 14 Build for Nord N100 (billie2)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows you to manually start the build from the Actions tab
 
 jobs:
   build_rom:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # STEP 1: Maximize space completely (Aggressive configurations)
+      # STEP 1: Allocate maximum storage space on the virtual machine
+      # This action formats and mounts a clean volume, giving you ~100GB+ of workspace space.
+      # MUST run before checkout, otherwise your repository files get overwritten.
       - name: Maximize Runner Build Space
-        uses: azure/maximize-build-space@v10
+        uses: easimon/maximize-build-space@v10
         with:
           root-reserve-mb: 2048
-          swap-size-mb: 12288 # Bumping swap to 12GB to handle large prebuilt checkouts safely
+          swap-size-mb: 12288 # Allocates 12GB Swap to prevent Out-Of-Memory compilation loops
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
 
-      # STEP 2: Install required packages
+      # STEP 2: Now safely checkout your repository config files
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # STEP 3: Install absolute required Linux packages for AOSP compilation
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
@@ -32,7 +35,7 @@ jobs:
             libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzma \
             pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3-pip
 
-      # STEP 3: Setup Google Repo binary tool
+      # STEP 4: Install Google Repo Tool binary
       - name: Set up Google Repo Tool
         run: |
           mkdir -p ~/bin
@@ -40,7 +43,7 @@ jobs:
           chmod a+x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      # STEP 4: Setup Compiler Cache
+      # STEP 5: Re-link previous run compilation progress
       - name: Handle Compiler Cache (ccache)
         uses: actions/cache@v4
         with:
@@ -50,46 +53,50 @@ jobs:
             ccache-pixelos14-billie2-${{ github.ref_name }}-
             ccache-pixelos14-billie2-
 
-      # STEP 5: Initialize & Fixed Sync Sequence
+      # STEP 6: Shallow-initialize and sync PixelOS Android 14 source files safely
       - name: Initialize & Sync Source Code
         run: |
           git config --global user.name "Your Name"
           git config --global user.email "your.email@example.com"
           
-          # Force git to use safer settings for large checkouts
-          git config --global core.packedGitLimit 512m
-          git config --global core.packedGitWindowSize 512m
+          # Optimize git RAM windows to prevent "Cannot initialize work tree" prebuilt checkout errors
+          git config --global core.packedgitlimit 512m
+          git config --global core.packedgitwindowsize 512m
           
           mkdir -p ~/android/pixelos
           cd ~/android/pixelos
           
-          # Initialize PixelOS Android 14 manifest tree
+          # Initialize PixelOS Android 14 core manifest tree
           ~/bin/repo init -u https://github.com/PixelOS-Fourteen/manifest.git -b fourteen-qpr1 --git-lfs --depth=1
           
-          # Inject your specific local configurations/manifests
+          # Inject your specific local configuration manifest dependencies tree
           git clone https://github.com/sounddrill31/crave_aosp_builder.git -b main .repo/local_manifests
           
-          # FIXED SYNC FLAGS: Removed '--optimized-fetch' which can corrupt complex nested prebuilts like Rust
-          # Added '--force-break-global-locks' and fallback error skipping variables
+          # Dual-tier fallback sync method. If multi-threading hits a rate limit, -j1 cleans up the broken tools.
           ~/bin/repo sync -c -j4 --force-sync --no-tags --no-clone-bundle --fail-fast || \
           ~/bin/repo sync -c -j1 --force-sync --no-tags --no-clone-bundle
 
-      # STEP 6: Execute the Compiler
+      # STEP 7: Run compilation tasks
       - name: Execute Compilation
         run: |
           cd ~/android/pixelos
           
+          # Hard lock compiler parameters to secure workspace boundaries
           export USE_CCACHE=1
           export CCACHE_DIR=~/.ccache
-          ccache -M 15G
-          ccache -z
+          ccache -M 15G  # Safely compresses tracking data under 15 Gigabytes
+          ccache -z      # Refreshes internal statistics loops
           
+          # Source environment architecture commands
           source build/envsetup.sh
+          
+          # Select target device tree profile configuration
           lunch pixelos_billie2-userdebug
           
+          # Run compilation using all available performance cores
           mka bacon -j$(nproc --all)
 
-      # STEP 7: Pack and upload results
+      # STEP 8: Push finished artifacts back to your actions panel if build finishes 100%
       - name: Upload Finished Build Artifacts
         if: success()
         uses: actions/upload-artifact@v4
