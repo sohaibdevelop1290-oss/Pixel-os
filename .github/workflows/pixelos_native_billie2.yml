@@ -1,7 +1,7 @@
 name: Native PixelOS 14 Build for Nord N100 (billie2)
 
 on:
-  workflow_dispatch: # Allows manual trigger from the GitHub Actions UI
+  workflow_dispatch: # Allows manual trigger from the Actions tab
 
 jobs:
   build_rom:
@@ -12,22 +12,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # STEP 2: Pure Storage Reclamation (No fallocate, No swap modifications)
-      # This cleans up ~35GB-40GB of pre-installed bloat safely without breaking mount loops.
+      # STEP 2: Pure Storage Reclamation
+      # Cleans out ~35GB-40GB of pre-installed bloat safely without breaking mount loops
       - name: Free Disk Space Safely
         run: |
           echo "=== Disk space before clearing ==="
           df -h
-          
-          echo "Purging heavy runtime environments..."
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL
-          
-          echo "Pruning unused Docker cache images..."
           sudo docker image prune --all --force
-          
           echo "=== Disk space after clearing ==="
           df -h
 
@@ -58,7 +53,7 @@ jobs:
             ccache-pixelos14-billie2-${{ github.ref_name }}-
             ccache-pixelos14-billie2-
 
-      # STEP 6: Shallow-cloned checkout of PixelOS Android 14 Core Sources
+      # STEP 6: Initialize, Inject Nord N100 Trees, and Sync Source Code
       - name: Initialize & Sync Source Code
         run: |
           git config --global user.name "Your Name"
@@ -74,10 +69,32 @@ jobs:
           # Initialize Android 14 (Fourteen) Manifest Source Target Tree
           ~/bin/repo init -u https://github.com/PixelOS-Fourteen/manifest.git -b fourteen-qpr1 --git-lfs --depth=1
           
-          # Inject your specific local configuration manifest dependencies tree
-          git clone https://github.com/sounddrill31/crave_aosp_builder.git -b main .repo/local_manifests
+          # Create the local manifests directory explicitly
+          mkdir -p .repo/local_manifests
           
-          # Double-pass sync pipeline to safely capture toolchain packages without stalling
+          # AUTOMATIC DEVICE TREE INJECTION (Creates local_manifest.xml dynamically)
+          # NOTE: Adjust the 'remote', 'name', and 'revision' fields below if your source trees are hosted elsewhere
+          cat <<EOF > .repo/local_manifests/billie2_roomservice.xml
+          <?xml version="1.0" encoding="UTF-8"?>
+          <manifest>
+            <!-- Device Tree -->
+            <project name="sounddrill31/device_oneplus_billie2" path="device/oneplus/billie2" remote="github" revision="fourteen" />
+            
+            <!-- Kernel Tree -->
+            <project name="sounddrill31/kernel_oneplus_billie2" path="kernel/oneplus/billie2" remote="github" revision="fourteen" />
+            
+            <!-- Vendor Blobs Tree -->
+            <project name="sounddrill31/vendor_oneplus_billie2" path="vendor/oneplus/billie2" remote="github" revision="fourteen" />
+            
+            <!-- Hardware dependencies often required by OnePlus platforms -->
+            <project name="PixelOS-Fourteen/hardware_oneplus" path="hardware/oneplus" remote="github" revision="fourteen" />
+          </manifest>
+          EOF
+          
+          echo "=== Generated Local Manifest Configuration ==="
+          cat .repo/local_manifests/billie2_roomservice.xml
+          
+          # Double-pass sync pipeline to safely capture device trees and toolchains without stalling
           ~/bin/repo sync -c -j4 --force-sync --no-tags --no-clone-bundle --fail-fast || \
           ~/bin/repo sync -c -j1 --force-sync --no-tags --no-clone-bundle
 
@@ -89,7 +106,7 @@ jobs:
           # Establish clear memory tracking boundaries for ccache
           export USE_CCACHE=1
           export CCACHE_DIR=~/.ccache
-          ccache -M 15G  # Securely restricts tracking log sizes under 15 Gigabytes
+          ccache -M 15G  # Restricts tracking log sizes under 15 Gigabytes
           ccache -z      # Refreshes internal statistics logs
           
           # Source compilation environmental variables
