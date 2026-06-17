@@ -70,6 +70,17 @@ jobs:
             -b lineage-22.1 \
             --depth=1 \
             --no-repo-verify
+
+          # Exclude heavy prebuilts to save disk space
+          mkdir -p .repo/local_manifests
+          cat > .repo/local_manifests/remove_projects.xml << 'XMLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <remove-project name="platform/prebuilts/rust" />
+  <remove-project name="platform/prebuilts/clang/host/linux-x86" />
+</manifest>
+XMLEOF
+
           repo sync -c \
             -j$(nproc --all) \
             --force-sync \
@@ -88,16 +99,20 @@ jobs:
           cd ~/lineage
 
           # Device tree
-          git clone https://github.com/LineageOS/android_device_oneplus_billie2.git \
+          git clone https://github.com/sohaibdevelop1290-oss/android_device_oneplus_billie2.git \
             device/oneplus/billie2 --depth=1 -b lineage-22.1
 
           # Kernel
-          git clone https://github.com/LineageOS/android_kernel_oneplus_sm4250.git \
+          git clone https://github.com/sohaibdevelop1290-oss/android_kernel_oneplus_sm4250.git \
             kernel/oneplus/sm4250 --depth=1 -b lineage-22.1
 
           # Vendor
-          git clone https://github.com/TheMuppets/proprietary_vendor_oneplus_billie2.git \
+          git clone https://github.com/sohaibdevelop1290-oss/proprietary_vendor_oneplus_billie2.git \
             vendor/oneplus/billie2 --depth=1 -b lineage-22.1
+
+          # Hardware OnePlus
+          git clone https://github.com/LineageOS/android_hardware_oneplus.git \
+            hardware/oneplus --depth=1 -b lineage-22.1
 
       - name: Build LineageOS
         run: |
